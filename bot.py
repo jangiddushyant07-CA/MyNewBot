@@ -6,12 +6,11 @@ from dotenv import load_dotenv
 # --- CONFIGURATION ---
 load_dotenv()
 
-# We only need these two keys now. The Google one is no longer used.
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")
 
-# Set the Model ID to the Peach Roleplay model
-MODEL_ID = "ClosedCharacter/Peach-2.0-9B-8k-Roleplay"
+# Set the Model ID to the new Dolphin model you chose
+MODEL_ID = "dphn/dolphin-2.9-llama3-8b"
 HUGGINGFACE_API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
 
 
@@ -24,7 +23,7 @@ When asked for a selfie, you should describe what you are doing in the picture i
 """
 
 # --- APP SETUP ---
-bot = Flask(__name__) # Using 'bot' as our Flask app variable
+bot = Flask(__name__)
 
 # --- HELPER FUNCTIONS ---
 def send_telegram_message(chat_id, text):
@@ -42,8 +41,8 @@ def query_huggingface_model(prompt):
     """Generic function to query the selected Hugging Face text model."""
     headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
     
-    # A structured prompt format that works well for role-playing models
-    formatted_prompt = f"### Instruction:\n{SYSTEM_PROMPT}\n\n### Input:\n{prompt}\n\n### Response:"
+    # A prompt format that works well for Dolphin models
+    formatted_prompt = f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant"
     
     payload = {
         "inputs": formatted_prompt,
