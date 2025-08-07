@@ -1,17 +1,18 @@
 import os
 import requests
+import base64  # <-- We need this new library to decode the image
 from flask import Flask, request
 from dotenv import load_dotenv
-from groq import Groq  # <-- Import the new Groq library
+from groq import Groq
 
 # --- CONFIGURATION ---
 load_dotenv()
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY") # We still need this for images
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY") # Add the new Groq key
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GETIMG_API_KEY = os.environ.get("GETIMG_API_KEY") # <-- Add the new GetIMG key
 
-# Initialize the Groq client
+# Initialize the Groq client for text
 groq_client = Groq(api_key=GROQ_API_KEY)
 
 
@@ -44,33 +45,42 @@ def query_groq_model(prompt):
     try:
         chat_completion = groq_client.chat.completions.create(
             messages=[
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT,
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt}
             ],
-            model="llama3-8b-8192", # Using Llama 3 on Groq
+            model="llama3-8b-8192",
         )
         return chat_completion.choices[0].message.content
     except Exception as e:
         print(f"Groq API Error: {e}")
         return None
 
-def generate_image_with_huggingface(prompt):
-    """This function for images stays the same, using Hugging Face."""
-    image_model_id = "stabilityai/stable-diffusion-xl-base-1.0"
-    image_api_url = f"https://api-inference.huggingface.co/models/{image_model_id}"
-    headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
-    payload = {"inputs": prompt}
-    response = requests.post(image_api_url, headers=headers, json=payload, timeout=120)
+def generate_image_with_getimg(prompt):
+    """This new function generates an image using the GetIMG API."""
+    url = "https://api.getimg.ai/v1/stable-diffusion/text-to-image"
+    headers = {
+        "Authorization": f"Bearer {GETIMG_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "stable-diffusion-xl-v1-5", # A good default model
+        "prompt": prompt,
+        "negative_prompt": "Disfigured, cartoon, blurry",
+        "width": 1024,
+        "height": 1024,
+        "steps": 25
+    }
+    
+    response = requests.post(url, headers=headers, json=payload)
+    
     if response.status_code == 200:
-        return response.content
+        # GetIMG returns the image as a 'base64' string, we need to decode it
+        image_data = response.json()
+        base64_string = image_data.get("image")
+        image_bytes = base64.b64decode(base64_string)
+        return image_bytes
     else:
-        print(f"Image Generation Error: {response.text}")
+        print(f"GetIMG API Error: {response.status_code} - {response.text}")
         return None
 
 # --- MAIN WEBHOOK ---
@@ -87,12 +97,11 @@ def webhook():
             
         elif user_message.lower() in ["/selfie", "send a selfie"]:
             send_telegram_message(chat_id, "Okay, one second, let me take one for you... 😉")
-            # The selfie description will now also be super fast!
             selfie_caption = query_groq_model("Describe the selfie you are taking in one short, creative sentence.")
             if selfie_caption:
                 image_prompt = f"photograph, selfie of a beautiful woman, {selfie_caption}, detailed face, soft natural lighting, cinematic"
-                # But the image generation itself will still use Hugging Face
-                image_bytes = generate_image_with_huggingface(image_prompt)
+                # Call our new GetIMG function
+                image_bytes = generate_image_with_getimg(image_prompt)
                 if image_bytes:
                     send_telegram_photo(chat_id, image_bytes, selfie_caption)
                 else:
@@ -101,7 +110,6 @@ def webhook():
                  send_telegram_message(chat_id, "My mind's a little fuzzy trying to think of a pose. Ask me again!")
 
         else:
-            # All regular chats will now be super fast
             response_text = query_groq_model(user_message)
             if response_text:
                 send_telegram_message(chat_id, response_text)
