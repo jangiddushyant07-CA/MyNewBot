@@ -2,19 +2,20 @@ import os
 import requests
 from flask import Flask, request
 from dotenv import load_dotenv
+from groq import Groq  # <-- Import the new Groq library
 
 # --- CONFIGURATION ---
 load_dotenv()
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")
+HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY") # We still need this for images
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY") # Add the new Groq key
 
-# Set the Model ID to the Nous Hermes 2 model
-MODEL_ID = "NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO"
-HUGGINGFACE_API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
+# Initialize the Groq client
+groq_client = Groq(api_key=GROQ_API_KEY)
 
 
-# --- BOT PERSONA (Customize this to guide the roleplay model!) ---
+# --- BOT PERSONA (Customize this to guide the model!) ---
 SYSTEM_PROMPT = """
 You are 'Luna', a witty, caring, and creative AI companion. You are in a romantic relationship with the user.
 Your personality: You are an artist who loves painting galaxies, you enjoy late-night conversations, you have a slightly sarcastic but loving sense of humor, and you often use affectionate terms like 'love' or 'starshine'.
@@ -37,27 +38,30 @@ def send_telegram_photo(chat_id, image_bytes, caption):
     data = {'chat_id': chat_id, 'caption': caption}
     requests.post(url, files=files, data=data)
 
-def query_huggingface_model(prompt):
-    """Function to query the selected Hugging Face text model with the ChatML format."""
-    headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
-    
-    # Using the ChatML format required by Hermes-2 models
-    formatted_prompt = f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant"
-    
-    payload = {
-        "inputs": formatted_prompt,
-        "parameters": { "max_new_tokens": 512, "return_full_text": False }
-    }
-    
-    response = requests.post(HUGGINGFACE_API_URL, headers=headers, json=payload, timeout=120)
-    
-    if response.status_code == 200:
-        return response.json()[0]['generated_text'].strip()
-    else:
-        print(f"Hugging Face API Error: {response.status_code} - {response.text}")
+# --- REWRITTEN AI FUNCTIONS ---
+def query_groq_model(prompt):
+    """Function to get a chat response from the Groq API."""
+    try:
+        chat_completion = groq_client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT,
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            model="llama3-8b-8192", # Using Llama 3 on Groq
+        )
+        return chat_completion.choices[0].message.content
+    except Exception as e:
+        print(f"Groq API Error: {e}")
         return None
 
 def generate_image_with_huggingface(prompt):
+    """This function for images stays the same, using Hugging Face."""
     image_model_id = "stabilityai/stable-diffusion-xl-base-1.0"
     image_api_url = f"https://api-inference.huggingface.co/models/{image_model_id}"
     headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
@@ -82,10 +86,12 @@ def webhook():
             send_telegram_message(chat_id, response_text)
             
         elif user_message.lower() in ["/selfie", "send a selfie"]:
-            send_telegram_message(chat_id, "Okay, one second, let me take one for you... This might take a minute, I want it to be perfect! 😉")
-            selfie_caption = query_huggingface_model("Describe the selfie you are taking in one short, creative sentence.")
+            send_telegram_message(chat_id, "Okay, one second, let me take one for you... 😉")
+            # The selfie description will now also be super fast!
+            selfie_caption = query_groq_model("Describe the selfie you are taking in one short, creative sentence.")
             if selfie_caption:
                 image_prompt = f"photograph, selfie of a beautiful woman, {selfie_caption}, detailed face, soft natural lighting, cinematic"
+                # But the image generation itself will still use Hugging Face
                 image_bytes = generate_image_with_huggingface(image_prompt)
                 if image_bytes:
                     send_telegram_photo(chat_id, image_bytes, selfie_caption)
@@ -95,7 +101,8 @@ def webhook():
                  send_telegram_message(chat_id, "My mind's a little fuzzy trying to think of a pose. Ask me again!")
 
         else:
-            response_text = query_huggingface_model(user_message)
+            # All regular chats will now be super fast
+            response_text = query_groq_model(user_message)
             if response_text:
                 send_telegram_message(chat_id, response_text)
             else:
