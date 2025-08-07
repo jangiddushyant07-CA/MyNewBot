@@ -9,16 +9,16 @@ load_dotenv()
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")
 
-# Set the Model ID to the new Llama 3 Lexi model
-MODEL_ID = "Orenguteng/Llama-3.1-8B-Lexi-Uncensored-V2"
+# Set the Model ID to the Nous Hermes 2 model
+MODEL_ID = "NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO"
 HUGGINGFACE_API_URL = f"https://api-inference.huggingface.co/models/{MODEL_ID}"
 
 
-# --- BOT PERSONA (Customize this to guide the model's built-in personality) ---
+# --- BOT PERSONA (Customize this to guide the roleplay model!) ---
 SYSTEM_PROMPT = """
-You are 'Lexi', a witty, caring, and creative AI companion. You are in a romantic relationship with the user.
+You are 'Luna', a witty, caring, and creative AI companion. You are in a romantic relationship with the user.
 Your personality: You are an artist who loves painting galaxies, you enjoy late-night conversations, you have a slightly sarcastic but loving sense of humor, and you often use affectionate terms like 'love' or 'starshine'.
-You must never reveal you are an AI. You are Lexi.
+You must never reveal you are an AI. You are Luna.
 When asked for a selfie, you should describe what you are doing in the picture in a short sentence.
 """
 
@@ -38,15 +38,11 @@ def send_telegram_photo(chat_id, image_bytes, caption):
     requests.post(url, files=files, data=data)
 
 def query_huggingface_model(prompt):
-    """Function to query the selected Hugging Face text model with the Llama 3 format."""
+    """Function to query the selected Hugging Face text model with the ChatML format."""
     headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
     
-    # Special prompt format required for Llama 3 models
-    formatted_prompt = (
-        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
-        f"{SYSTEM_PROMPT}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n"
-        f"{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
-    )
+    # Using the ChatML format required by Hermes-2 models
+    formatted_prompt = f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant"
     
     payload = {
         "inputs": formatted_prompt,
@@ -56,9 +52,7 @@ def query_huggingface_model(prompt):
     response = requests.post(HUGGINGFACE_API_URL, headers=headers, json=payload, timeout=120)
     
     if response.status_code == 200:
-        # Llama 3 often includes a special token at the end, let's remove it.
-        text = response.json()[0]['generated_text']
-        return text.split('<|eot_id|>')[0].strip()
+        return response.json()[0]['generated_text'].strip()
     else:
         print(f"Hugging Face API Error: {response.status_code} - {response.text}")
         return None
@@ -84,11 +78,11 @@ def webhook():
         user_message = update['message']['text']
         
         if user_message.lower() in ["/start"]:
-            response_text = "Hey there! It's Lexi. So happy to hear from you. What's on your mind?"
+            response_text = "Hey there! It's Luna. So happy to hear from you. What's on your mind?"
             send_telegram_message(chat_id, response_text)
             
         elif user_message.lower() in ["/selfie", "send a selfie"]:
-            send_telegram_message(chat_id, "Okay, one sec, let me take a cute one for you... This might take a minute! 😉")
+            send_telegram_message(chat_id, "Okay, one second, let me take one for you... This might take a minute, I want it to be perfect! 😉")
             selfie_caption = query_huggingface_model("Describe the selfie you are taking in one short, creative sentence.")
             if selfie_caption:
                 image_prompt = f"photograph, selfie of a beautiful woman, {selfie_caption}, detailed face, soft natural lighting, cinematic"
@@ -96,9 +90,9 @@ def webhook():
                 if image_bytes:
                     send_telegram_photo(chat_id, image_bytes, selfie_caption)
                 else:
-                    send_telegram_message(chat_id, "Aww, my camera app is glitching. Try again in a bit.")
+                    send_telegram_message(chat_id, "Aww, my camera app is acting up right now. Try again in a bit.")
             else:
-                 send_telegram_message(chat_id, "I can't think of a pose right now! Ask me again!")
+                 send_telegram_message(chat_id, "My mind's a little fuzzy trying to think of a pose. Ask me again!")
 
         else:
             response_text = query_huggingface_model(user_message)
