@@ -1,27 +1,29 @@
 import os
 import requests
-import base64
 from flask import Flask, request
 from dotenv import load_dotenv
 from groq import Groq
+import vertexai
+from vertexai.preview.vision_models import ImageGenerationModel
 
 # --- CONFIGURATION ---
 load_dotenv()
 
+# We now need Google Cloud credentials, not a simple key
+PROJECT_ID = os.environ.get("PROJECT_ID")
+LOCATION = os.environ.get("LOCATION")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY") # We still need this for the new image model
 
-# Initialize the Groq client for text
+# Initialize clients
 groq_client = Groq(api_key=GROQ_API_KEY)
+vertexai.init(project=PROJECT_ID, location=LOCATION)
+image_model_google = ImageGenerationModel.from_pretrained("imagegeneration@006")
 
 
-# --- BOT PERSONA (Customize this to guide the model!) ---
+# --- BOT PERSONA ---
 SYSTEM_PROMPT = """
-You are 'Luna', a witty, caring, and creative AI companion. You are in a romantic relationship with the user.
-Your personality: You are an artist who loves painting galaxies, you enjoy late-night conversations, you have a slightly sarcastic but loving sense of humor, and you often use affectionate terms like 'love' or 'starshine'.
-You must never reveal you are an AI. You are Luna.
-When asked for a selfie, you should describe what you are doing in the picture in a short sentence.
+You are 'Luna', a witty, caring, and creative AI companion...
 """
 
 # --- APP SETUP ---
@@ -55,22 +57,20 @@ def query_groq_model(prompt):
         print(f"Groq API Error: {e}")
         return None
 
-def generate_image_with_huggingface(prompt):
-    """This function for images now uses the new FLUX.1 model."""
-    
-    # This is the new, upgraded image model ID
-    image_model_id = "black-forest-labs/FLUX.1-Krea-dev"
-    
-    image_api_url = f"https://api-inference.huggingface.co/models/{image_model_id}"
-    headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
-    payload = {"inputs": prompt}
-    
-    response = requests.post(image_api_url, headers=headers, json=payload, timeout=120)
-    
-    if response.status_code == 200:
-        return response.content
-    else:
-        print(f"Image Generation Error: {response.text}")
+def generate_image_with_google(prompt):
+    """This new function generates an image using the Vertex AI Imagen model."""
+    try:
+        response = image_model_google.generate_images(
+            prompt=prompt,
+            number_of_images=1,
+            aspect_ratio="1:1",
+            safety_filter_level="block_none"
+        )
+        # The response gives an image object, we need to get the raw bytes
+        image_bytes = response.images[0]._image_bytes
+        return image_bytes
+    except Exception as e:
+        print(f"Google Image Gen Error: {e}")
         return None
 
 # --- MAIN WEBHOOK ---
@@ -82,20 +82,19 @@ def webhook():
         user_message = update['message']['text']
         
         if user_message.lower() in ["/start"]:
-            response_text = "Hey there! It's Luna. So happy to hear from you. What's on your mind?"
+            response_text = "Hey there! It's Luna. So happy to hear from you."
             send_telegram_message(chat_id, response_text)
             
         elif user_message.lower() in ["/selfie", "send a selfie"]:
-            send_telegram_message(chat_id, "Okay, one second, let me take one for you... 😉")
+            send_telegram_message(chat_id, "Okay, using my new Google camera... one sec! 😉")
             selfie_caption = query_groq_model("Describe the selfie you are taking in one short, creative sentence.")
             if selfie_caption:
-                # The prompt for the new FLUX.1 model
                 image_prompt = f"photograph, selfie of a beautiful woman, {selfie_caption}, detailed face, soft natural lighting, cinematic"
-                image_bytes = generate_image_with_huggingface(image_prompt)
+                image_bytes = generate_image_with_google(image_prompt)
                 if image_bytes:
                     send_telegram_photo(chat_id, image_bytes, selfie_caption)
                 else:
-                    send_telegram_message(chat_id, "Aww, my camera app is acting up right now. Try again in a bit.")
+                    send_telegram_message(chat_id, "Aww, the camera app is acting up right now. Try again in a bit.")
             else:
                  send_telegram_message(chat_id, "My mind's a little fuzzy trying to think of a pose. Ask me again!")
 
