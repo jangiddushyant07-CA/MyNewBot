@@ -1,6 +1,6 @@
 import os
 import requests
-import base64  # <-- We need this new library to decode the image
+import base64
 from flask import Flask, request
 from dotenv import load_dotenv
 from groq import Groq
@@ -10,7 +10,7 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-GETIMG_API_KEY = os.environ.get("GETIMG_API_KEY") # <-- Add the new GetIMG key
+HUGGINGFACE_API_KEY = os.environ.get("HUGGINGFACE_API_KEY") # We still need this for the new image model
 
 # Initialize the Groq client for text
 groq_client = Groq(api_key=GROQ_API_KEY)
@@ -39,7 +39,7 @@ def send_telegram_photo(chat_id, image_bytes, caption):
     data = {'chat_id': chat_id, 'caption': caption}
     requests.post(url, files=files, data=data)
 
-# --- REWRITTEN AI FUNCTIONS ---
+# --- AI FUNCTIONS ---
 def query_groq_model(prompt):
     """Function to get a chat response from the Groq API."""
     try:
@@ -55,32 +55,22 @@ def query_groq_model(prompt):
         print(f"Groq API Error: {e}")
         return None
 
-def generate_image_with_getimg(prompt):
-    """This new function generates an image using the GetIMG API."""
-    url = "https://api.getimg.ai/v1/stable-diffusion/text-to-image"
-    headers = {
-        "Authorization": f"Bearer {GETIMG_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "stable-diffusion-xl-v1-5", # A good default model
-        "prompt": prompt,
-        "negative_prompt": "Disfigured, cartoon, blurry",
-        "width": 1024,
-        "height": 1024,
-        "steps": 25
-    }
+def generate_image_with_huggingface(prompt):
+    """This function for images now uses the new FLUX.1 model."""
     
-    response = requests.post(url, headers=headers, json=payload)
+    # This is the new, upgraded image model ID
+    image_model_id = "black-forest-labs/FLUX.1-Krea-dev"
+    
+    image_api_url = f"https://api-inference.huggingface.co/models/{image_model_id}"
+    headers = {"Authorization": f"Bearer {HUGGINGFACE_API_KEY}"}
+    payload = {"inputs": prompt}
+    
+    response = requests.post(image_api_url, headers=headers, json=payload, timeout=120)
     
     if response.status_code == 200:
-        # GetIMG returns the image as a 'base64' string, we need to decode it
-        image_data = response.json()
-        base64_string = image_data.get("image")
-        image_bytes = base64.b64decode(base64_string)
-        return image_bytes
+        return response.content
     else:
-        print(f"GetIMG API Error: {response.status_code} - {response.text}")
+        print(f"Image Generation Error: {response.text}")
         return None
 
 # --- MAIN WEBHOOK ---
@@ -99,9 +89,9 @@ def webhook():
             send_telegram_message(chat_id, "Okay, one second, let me take one for you... 😉")
             selfie_caption = query_groq_model("Describe the selfie you are taking in one short, creative sentence.")
             if selfie_caption:
+                # The prompt for the new FLUX.1 model
                 image_prompt = f"photograph, selfie of a beautiful woman, {selfie_caption}, detailed face, soft natural lighting, cinematic"
-                # Call our new GetIMG function
-                image_bytes = generate_image_with_getimg(image_prompt)
+                image_bytes = generate_image_with_huggingface(image_prompt)
                 if image_bytes:
                     send_telegram_photo(chat_id, image_bytes, selfie_caption)
                 else:
