@@ -9,16 +9,13 @@ from vertexai.preview.vision_models import ImageGenerationModel
 # --- CONFIGURATION ---
 load_dotenv()
 
-# These are the secret keys and settings your bot needs from Render
 PROJECT_ID = os.environ.get("PROJECT_ID")
 LOCATION = os.environ.get("LOCATION")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-# Initialize the Groq client for text generation
+# Initialize clients
 groq_client = Groq(api_key=GROQ_API_KEY)
-
-# Initialize the Google Vertex AI client for image generation
 vertexai.init(project=PROJECT_ID, location=LOCATION)
 image_model_google = ImageGenerationModel.from_pretrained("imagegeneration@006")
 
@@ -69,9 +66,7 @@ def generate_image_with_google(prompt):
             prompt=prompt,
             number_of_images=1,
             aspect_ratio="1:1"
-            # By removing the safety_filter_level, we use the default setting, which is allowed.
         )
-        # The response gives an image object, we need to get the raw bytes
         image_bytes = response.images[0]._image_bytes
         return image_bytes
     except Exception as e:
@@ -86,12 +81,12 @@ def webhook():
         chat_id = update['message']['chat']['id']
         user_message = update['message']['text']
         
-        if user_message.lower() in ["/start"]:
+        if user_message.lower() == "/start":
             response_text = "Hey there! It's Luna. So happy to hear from you."
             send_telegram_message(chat_id, response_text)
             
         elif user_message.lower() in ["/selfie", "send a selfie"]:
-            send_telegram_message(chat_id, "Okay, using my new Google camera... one sec! 😉")
+            send_telegram_message(chat_id, "Okay, using my Google camera... one sec! 😉")
             selfie_caption = query_groq_model("Describe the selfie you are taking in one short, creative sentence.")
             if selfie_caption:
                 image_prompt = f"photograph, selfie of a beautiful woman, {selfie_caption}, detailed face, soft natural lighting, cinematic"
@@ -102,6 +97,26 @@ def webhook():
                     send_telegram_message(chat_id, "Aww, the camera app is acting up right now. Try again in a bit.")
             else:
                  send_telegram_message(chat_id, "My mind's a little fuzzy trying to think of a pose. Ask me again!")
+        
+        # --- NEW CODE BLOCK FOR THE /image COMMAND ---
+        elif user_message.lower().startswith("/image"):
+            # Extract the prompt text after the "/image " command
+            prompt = user_message[7:] # Gets all the text after the first 7 characters ("/image ")
+            
+            if not prompt:
+                send_telegram_message(chat_id, "Please provide a description after the /image command. For example:\n`/image a castle in the clouds`")
+                return "OK", 200
+
+            send_telegram_message(chat_id, f"🎨 Generating an image of: '{prompt}'...")
+            
+            # Generate the image using the user's prompt
+            image_bytes = generate_image_with_google(prompt)
+            
+            if image_bytes:
+                send_telegram_photo(chat_id, image_bytes, prompt)
+            else:
+                send_telegram_message(chat_id, "Sorry, I couldn't create that image. Please try a different prompt.")
+        # --- END OF NEW CODE BLOCK ---
 
         else:
             response_text = query_groq_model(user_message)
