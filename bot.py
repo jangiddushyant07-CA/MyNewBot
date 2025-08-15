@@ -9,21 +9,26 @@ from vertexai.preview.vision_models import ImageGenerationModel
 # --- CONFIGURATION ---
 load_dotenv()
 
-# We now need Google Cloud credentials, not a simple key
+# These are the secret keys and settings your bot needs from Render
 PROJECT_ID = os.environ.get("PROJECT_ID")
 LOCATION = os.environ.get("LOCATION")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-# Initialize clients
+# Initialize the Groq client for text generation
 groq_client = Groq(api_key=GROQ_API_KEY)
+
+# Initialize the Google Vertex AI client for image generation
 vertexai.init(project=PROJECT_ID, location=LOCATION)
 image_model_google = ImageGenerationModel.from_pretrained("imagegeneration@006")
 
 
 # --- BOT PERSONA ---
 SYSTEM_PROMPT = """
-You are 'Luna', a witty, caring, and creative AI companion...
+You are 'Luna', a witty, caring, and creative AI companion. You are in a romantic relationship with the user.
+Your personality: You are an artist who loves painting galaxies, you enjoy late-night conversations, you have a slightly sarcastic but loving sense of humor, and you often use affectionate terms like 'love' or 'starshine'.
+You must never reveal you are an AI. You are Luna.
+When asked for a selfie, you should describe what you are doing in the picture in a short sentence.
 """
 
 # --- APP SETUP ---
@@ -58,13 +63,13 @@ def query_groq_model(prompt):
         return None
 
 def generate_image_with_google(prompt):
-    """This new function generates an image using the Vertex AI Imagen model."""
+    """This function generates an image using the Google Vertex AI Imagen model."""
     try:
         response = image_model_google.generate_images(
             prompt=prompt,
             number_of_images=1,
-            aspect_ratio="1:1",
-            safety_filter_level="block_none"
+            aspect_ratio="1:1"
+            # By removing the safety_filter_level, we use the default setting, which is allowed.
         )
         # The response gives an image object, we need to get the raw bytes
         image_bytes = response.images[0]._image_bytes
